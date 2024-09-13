@@ -4,9 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * For implement this task focus on clear code, and make this solution as simple readable as possible
@@ -19,6 +17,12 @@ import java.util.Optional;
  */
 public class DocumentManager {
 
+    private final StorageDB storage;
+
+    public DocumentManager(StorageDB storage) {
+        this.storage = storage;
+    }
+
     /**
      * Implementation of this method should upsert the document to your storage
      * And generate unique id if it does not exist, don't change [created] field
@@ -27,8 +31,14 @@ public class DocumentManager {
      * @return saved document
      */
     public Document save(Document document) {
+        if (document == null) throw new IllegalArgumentException("Document cannot be null");
 
-        return null;
+        Document existingDocument = storage.getDocumentById(document.getId());
+        if (existingDocument != null) {
+            document.setCreated(existingDocument.getCreated());
+        }
+
+        return storage.saveDocument(document);
     }
 
     /**
@@ -38,8 +48,9 @@ public class DocumentManager {
      * @return list matched documents
      */
     public List<Document> search(SearchRequest request) {
+        if (request == null) throw new IllegalArgumentException("SearchRequest must not be null");
 
-        return Collections.emptyList();
+        return storage.searchDocuments(request);
     }
 
     /**
@@ -49,8 +60,7 @@ public class DocumentManager {
      * @return optional document
      */
     public Optional<Document> findById(String id) {
-
-        return Optional.empty();
+        return Optional.ofNullable(storage.getDocumentById(id));
     }
 
     @Data
@@ -79,5 +89,67 @@ public class DocumentManager {
         private String id;
         private String name;
     }
-}
 
+    @Data
+    public static class StorageDB {
+
+        private final Map<String, Document> storageDB;
+
+        public Document saveDocument(Document document) {
+            String id = document.getId();
+            if (id == null || id.trim().isEmpty()) {
+                id = UUID.randomUUID().toString();
+                document.setId(id);
+            }
+            storageDB.put(id, document);
+
+            return document;
+        }
+
+        public List<Document> searchDocuments(SearchRequest request) {
+            List<Document> documents = new ArrayList<>();
+
+            for (Map.Entry<String, Document> entry : storageDB.entrySet()) {
+                Document document = entry.getValue();
+                if (isValidDocument(request, document)) {
+                    documents.add(document);
+                }
+            }
+
+            return documents;
+        }
+
+        private boolean isValidDocument(SearchRequest request, Document document) {
+            if (request.getCreatedFrom() != null && document.getCreated().isBefore(request.getCreatedFrom())) {
+                return false;
+            }
+            if (request.getCreatedTo() != null && document.getCreated().isAfter(request.getCreatedTo())) {
+                return false;
+            }
+
+            if (request.getTitlePrefixes() != null && !request.getTitlePrefixes().isEmpty()
+                    && document.getTitle() != null
+                    && request.getTitlePrefixes().stream().noneMatch(prefix -> document.getTitle().startsWith(prefix))) {
+                return false;
+            }
+
+            if (request.getContainsContents() != null && !request.getContainsContents().isEmpty()
+                    && document.getContent() != null
+                    && request.getContainsContents().stream().noneMatch(content -> document.getContent().contains(content))) {
+                return false;
+            }
+
+            if (request.getAuthorIds() != null && !request.getAuthorIds().isEmpty()
+                    && document.getAuthor() != null
+                    && !request.getAuthorIds().contains(document.getAuthor().getId())) {
+                return false;
+            }
+
+            return true;
+        }
+
+        public Document getDocumentById(String id) {
+            return storageDB.get(id);
+        }
+    }
+}
